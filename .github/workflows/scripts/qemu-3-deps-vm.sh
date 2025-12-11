@@ -10,6 +10,13 @@
 
 set -eu
 
+function alpine() {
+  whoami
+  sudo apk add git make m4 autoconf automake libtool \
+  build-base clang21 zlib-dev util-linux-dev \
+  libtirpc-dev openssl-dev linux-virt-dev
+}
+
 function archlinux() {
   echo "##[group]Running pacman -Syu"
   sudo btrfs filesystem resize max /
@@ -140,6 +147,12 @@ case "$1" in
     sudo dnf install -y kernel-abi-stablelists
     echo "##[endgroup]"
     ;;
+  alpine*)
+    whoami
+    sudo apk add qemu-guest-agent nfs-utils samba-server
+    sudo setup-apkrepos -c1
+    alpine
+    ;;
   archlinux)
     archlinux
     ;;
@@ -188,6 +201,11 @@ test -z "${ONLY_DEPS:-}" || exit 0
 # Start services
 echo "##[group]Enable services"
 case "$1" in
+  alpine*)
+    sudo -E rc-update add qemu-guest-agent
+    sudo -E rc-update add nfs
+    sudo -E rc-update add samba
+    ;;
   freebsd*)
     # add virtio things
     echo 'virtio_load="YES"' | sudo -E tee -a /boot/loader.conf

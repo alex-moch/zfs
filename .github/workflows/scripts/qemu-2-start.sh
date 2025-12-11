@@ -43,6 +43,11 @@ case "$OS" in
     OSv="almalinux9"
     URL="https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2"
     ;;
+  alpine3_22)
+    OSNAME="Alpine Linux 3.22.2"
+    OSv="alpinelinux3.21"
+    URL="https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/cloud/generic_alpine-3.22.2-x86_64-bios-cloudinit-r0.qcow2"
+    ;;
   archlinux)
     OSNAME="Archlinux"
     URL="https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
@@ -222,14 +227,8 @@ if [ ${OS:0:7} != "freebsd" ]; then
 
 hostname: $OS
 
-users:
-- name: root
-  shell: $BASH
-- name: zfs
-  sudo: ALL=(ALL) NOPASSWD:ALL
-  shell: $BASH
-  ssh_authorized_keys:
-    - $PUBKEY
+ssh_authorized_keys:
+  - "$PUBKEY"
 
 growpart:
   mode: auto
@@ -311,4 +310,11 @@ else
   ssh root@vm0 'service sshd restart'
   scp ~/src.txz "root@vm0:/tmp/src.txz"
   ssh root@vm0 'tar -C / -zxf /tmp/src.txz'
+fi
+
+
+if [ ${OS:0:6} == "alpine" ]; then
+  while pidof /usr/bin/qemu-system-x86_64 >/dev/null; do
+    ssh alpine@vm0 "uname -a" && break
+  done
 fi

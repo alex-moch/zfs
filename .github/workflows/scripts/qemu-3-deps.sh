@@ -7,7 +7,11 @@
 #     like "6.14".
 ######################################################################
 
+echo "1"
+
 .github/workflows/scripts/qemu-wait-for-vm.sh vm0
+
+echo "2"
 
 # SPECIAL CASE:
 #
@@ -19,9 +23,17 @@ if [ -n "${2:-}" ] ; then
   sed -i -E 's/Linux-Maximum: .+/Linux-Maximum: 99.99/g' META
 fi
 
+echo "3"
+
 scp .github/workflows/scripts/qemu-3-deps-vm.sh zfs@vm0:qemu-3-deps-vm.sh
+
+echo "4"
+
 PID=`pidof /usr/bin/qemu-system-x86_64`
 ssh zfs@vm0 '$HOME/qemu-3-deps-vm.sh' "$@"
+
+echo "5"
+
 # wait for poweroff to succeed
 tail --pid=$PID -f /dev/null
 sleep 5 # avoid this: "error: Domain is already active"
