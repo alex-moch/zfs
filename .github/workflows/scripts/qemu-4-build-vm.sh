@@ -212,6 +212,84 @@ function linux() {
   echo "##[endgroup]"
 }
 
+function alpine_user() {
+  extra="${1:-}"
+
+  export CC=clang
+
+  echo "##[group]Autogen.sh"
+  run ./autogen.sh
+  echo "##[endgroup]"
+
+  echo "##[group]Configure"
+  run ./configure \
+    --with-config=user \
+    --prefix=/usr \
+    --enable-pyzfs \
+    --enable-debuginfo $extra
+  echo "##[endgroup]"
+
+  echo "##[group]Build"
+  run make -j$(nproc)
+  echo "##[endgroup]"
+
+  echo "##[group]Install"
+  run sudo make install
+  echo "##[endgroup]"
+}
+
+function alpine_kernel() {
+  extra="${1:-}"
+
+  make distclean
+  export CC=gcc
+
+  echo "##[group]Autogen.sh"
+  run ./autogen.sh
+  echo "##[endgroup]"
+
+  echo "##[group]Configure"
+  run ./configure \
+    --with-config=kernel \
+    --prefix=/usr \
+    --enable-pyzfs \
+    --enable-debuginfo $extra
+  echo "##[endgroup]"
+
+  echo "##[group]Build"
+  run make -j$(nproc)
+  echo "##[endgroup]"
+
+  echo "##[group]Install"
+  run sudo make install
+  echo "##[endgroup]"
+}
+
+function alpine() {
+  extra="${1:-}"
+
+  export CC=gcc
+
+  echo "##[group]Autogen.sh"
+  run ./autogen.sh
+  echo "##[endgroup]"
+
+  echo "##[group]Configure"
+  run ./configure \
+    --prefix=/usr \
+    --enable-pyzfs \
+    --enable-debuginfo $extra
+  echo "##[endgroup]"
+
+  echo "##[group]Build"
+  run make -j$(nproc)
+  echo "##[endgroup]"
+
+  echo "##[group]Install"
+  run sudo make install
+  echo "##[endgroup]"
+}
+
 function rpm_build_and_install() {
   extra="${1:-}"
 
@@ -365,6 +443,11 @@ case "$OS" in
     ;;
   alma*|centos*)
     rpm_build_and_install "--with-spec=redhat $extra"
+    ;;
+  alpine*)
+    #alpine_user "$extra"
+    #alpine_kernel "$extra"
+    alpine "$extra"
     ;;
   fedora*)
     rpm_build_and_install "$extra"

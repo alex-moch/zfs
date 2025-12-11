@@ -222,6 +222,37 @@ rm -f $IMG
 
 PUBKEY=$(cat ~/.ssh/id_ed25519.pub)
 if [ ${OS:0:7} != "freebsd" ]; then
+#if [ ${OS:0:7} != "freebsd" ] && [ ${OS:0:6} != "alpine" ]; then
+  cat <<EOF > /tmp/user-data
+#cloud-config
+
+hostname: $OS
+
+users:
+  - name: root
+    shell: $BASH
+  - name: zfs
+    lock_passwd: false
+    passwd: '*'
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    ssh_authorized_keys:
+      - $PUBKEY
+
+packages:
+  - sudo
+  - bash
+
+growpart:
+  mode: auto
+  devices: ['/']
+  ignore_growroot_disabled: false
+EOF
+#
+# Use a minimal cloud-config for Alpine Linux.
+# Actual config done below.
+#
+elif [ ${OS:0:6} == "alpine" ]; then
   cat <<EOF > /tmp/user-data
 #cloud-config
 
@@ -312,9 +343,31 @@ else
   ssh root@vm0 'tar -C / -zxf /tmp/src.txz'
 fi
 
-
+#
+# Config for Alpine Linux similar to FreeBSD.
+# sudo does not come preinstalled, so we need to use doas.
+#
 if [ ${OS:0:6} == "alpine" ]; then
   while pidof /usr/bin/qemu-system-x86_64 >/dev/null; do
-    ssh alpine@vm0 "uname -a" && break
+    ssh 2>/dev/null zfs@vm0 "uname -a" && break
   done
+  # Enable sudo.
+  #ssh alpine@vm0 "doas apk add sudo"
+  #ssh alpine@vm0 'echo "alpine ALL=(ALL:ALL) NOPASSWD: ALL" | doas tee -a /etc/sudoers'
+  # Update to Edge.
+  ssh zfs@vm0 "sudo sed -i -e 's/v3.22/edge/g' /etc/apk/repositories"
+  ssh zfs@vm0 "sudo apk update"
+  ssh zfs@vm0 "sudo apk add --upgrade apk-tools"
+  ssh zfs@vm0 "sudo apk upgrade --available"
+  # Use sudo.
+  ssh zfs@vm0 "sudo setup-apkrepos -c1"
+  ssh zfs@vm0 "sudo apk add shadow qemu-guest-agent"
+  #ssh zfs@vm0 "sudo apk add shadow bash qemu-guest-agent python3 git"
+  #ssh alpine@vm0 "sudo chsh -s /bin/bash root"
+  #ssh alpine@vm0 "sudo adduser -Ds /bin/bash zfs"
+  #ssh alpine@vm0 'sudo mkdir -p /home/zfs/.ssh'
+  #ssh alpine@vm0 'echo "zfs ALL=(ALL:ALL) NOPASSWD: ALL" | sudo tee -a /etc/sudoers'
+  #ssh alpine@vm0 "echo $PUBKEY | sudo tee -a /home/zfs/.ssh/authorized_keys"
+  #ssh alpine@vm0 'sudo chown -R zfs /home/zfs'
+  #ssh alpine@vm0 "sudo sed -i 's/^zfs:!:/zfs:*:/' /etc/shadow"
 fi

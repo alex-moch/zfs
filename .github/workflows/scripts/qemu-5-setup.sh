@@ -58,13 +58,19 @@ for ((i=1; i<=VMs; i++)); do
 fqdn: vm$i
 
 users:
-- name: root
-  shell: $BASH
-- name: zfs
-  sudo: ALL=(ALL) NOPASSWD:ALL
-  shell: $BASH
-  ssh_authorized_keys:
-    - $PUBKEY
+  - name: root
+    shell: $BASH
+  - name: zfs
+    lock_passwd: false
+    passwd: '*'
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    ssh_authorized_keys:
+      - $PUBKEY
+
+packages:
+  - sudo
+  - bash
 
 growpart:
   mode: auto
@@ -101,6 +107,9 @@ uptime
 free -m
 zfs list
 EOF
+
+# Dev: We're not here yet.
+#exit 1
 
 sudo chmod +x cronjob.sh
 sudo mv -f cronjob.sh /root/cronjob.sh

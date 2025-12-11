@@ -11,10 +11,14 @@
 set -eu
 
 function alpine() {
-  whoami
   sudo apk add git make m4 autoconf automake libtool \
-  build-base clang21 zlib-dev util-linux-dev \
-  libtirpc-dev openssl-dev linux-virt-dev
+    build-base clang21 zlib-dev util-linux-dev \
+    libtirpc-dev openssl-dev linux-virt linux-virt-dev rsync wget \
+    xxhash coreutils linux-headers gettext-dev \
+    py3-packaging py3-distlib python3-dev py3-setuptools py3-cffi \
+    alpine-sdk xfsprogs oksh
+  sudo ln -s /usr/bin/oksh /usr/bin/ksh
+  sudo ln -s /usr/bin/oksh /bin/ksh
 }
 
 function archlinux() {
@@ -149,7 +153,7 @@ case "$1" in
     ;;
   alpine*)
     whoami
-    sudo apk add qemu-guest-agent nfs-utils samba-server
+    sudo apk add qemu-guest-agent nfs-utils samba-server dhcpcd
     sudo setup-apkrepos -c1
     alpine
     ;;
@@ -205,6 +209,12 @@ case "$1" in
     sudo -E rc-update add qemu-guest-agent
     sudo -E rc-update add nfs
     sudo -E rc-update add samba
+    sudo -E rc-update add sshd
+    sudo -E rc-update add dhcpcd
+    # Kill everything related to cloud-init.
+    sudo rc-update del cloud-init default || true
+    sudo rc-update del cloud-final default || true
+    sudo rc-update del cloud-config default || true
     ;;
   freebsd*)
     # add virtio things
@@ -261,7 +271,7 @@ case "$1" in
 esac
 
 case "$1" in
-  archlinux|freebsd*)
+  alpine*|archlinux|freebsd*)
     true
     ;;
   *)

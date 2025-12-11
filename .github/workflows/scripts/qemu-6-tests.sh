@@ -7,7 +7,7 @@
 # called on qemu-vm: qemu-6-tests.sh $OS $2/$3
 ######################################################################
 
-set -eu
+set -exu
 
 function prefix() {
   ID="$1"
@@ -49,7 +49,7 @@ if [ -z ${1:-} ]; then
 
   for ((i=1; i<=VMs; i++)); do
     IP="192.168.122.1$i"
-    daemonize -c /var/tmp -p vm${i}.pid -o vm${i}log.txt -- \
+    #daemonize -c /var/tmp -p vm${i}.pid -o vm${i}log.txt -- \
       $SSH zfs@$IP $TESTS $OS $i $VMs $CI_TYPE
     # handly line by line and add info prefix
     stdbuf -oL tail -fq vm${i}log.txt \
@@ -101,9 +101,6 @@ case "$1" in
     sudo sysctl kernel.io_uring_disabled=0 > /dev/null
     ;;
 esac
-
-# Debug: skip tests.
-exit 0
 
 # run functional testings and save exitcode
 cd /var/tmp
