@@ -1,7 +1,7 @@
 name: smatch
 
 on:
-  push:
+#  push:
   pull_request:
 
 concurrency:
