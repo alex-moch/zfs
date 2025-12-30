@@ -21,18 +21,14 @@ function alpine() {
     pax procps py3-cffi py3-distlib py3-packaging py3-setuptools python3 \
     python3-dev qemu-guest-agent rng-tools rsync samba samba-server sed \
     strace sysstat util-linux util-linux-dev wget words xfsprogs xxhash \
-    zlib-dev pamtester@testing
+    zlib-dev pamtester@testing mksh
+
+    sudo ln -fn /bin/mksh /bin/ksh
+    sudo ln -fn /bin/mksh /usr/bin/ksh
   echo "##[endgroup]"
 
   echo "##[group]Switch to eudev"
   sudo setup-devd udev
-  echo "##[endgroup]"
-
-  echo "##[group]Install ksh93 from Source"
-  git clone --depth 1 https://github.com/ksh93/ksh.git /tmp/ksh
-  cd /tmp/ksh
-  ./bin/package make
-  sudo ./bin/package install /
   echo "##[endgroup]"
 }
 
