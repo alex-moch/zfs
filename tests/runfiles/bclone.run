@@ -27,20 +27,3 @@ post = cleanup
 failsafe_user = root
 failsafe = callbacks/zfs_failsafe
 tags = ['bclone']
-
-[tests/functional/bclone]
-tests = ['bclone_crossfs_corner_cases',
-    'bclone_crossfs_data',
-    'bclone_crossfs_embedded',
-    'bclone_crossfs_hole',
-    'bclone_diffprops_all',
-    'bclone_diffprops_checksum',
-    'bclone_diffprops_compress',
-    'bclone_diffprops_copies',
-    'bclone_diffprops_recordsize',
-    'bclone_prop_sync',
-    'bclone_samefs_corner_cases',
-    'bclone_samefs_data',
-    'bclone_samefs_embedded',
-    'bclone_samefs_hole']
-tags = ['bclone']
