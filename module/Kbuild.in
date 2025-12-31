@@ -264,6 +264,9 @@ ZFS_ZSTD_FLAGS += -DZSTD_DISABLE_ASM
 # Disable intrinsics for EL10 x86_64-v3 baseline
 ZFS_ZSTD_FLAGS += -DZSTD_NO_INTRINSICS
 
+# Disable tracing for kernel builds
+ZFS_ZSTD_FLAGS += -DZSTD_TRACE=0
+
 ZSTD_OBJS := \
 	zfs_zstd.o \
 	zstd_sparc.o
