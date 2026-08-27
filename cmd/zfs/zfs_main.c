@@ -2238,7 +2238,7 @@ zfs_do_get(int argc, char **argv)
 	};
 
 	/* check options */
-	while ((c = getopt_long(argc, argv, ":d:o:s:jrt:Hp", long_options,
+	while ((c = getopt_long(argc, argv, "+:d:o:s:jrt:Hp", long_options,
 	    NULL)) != -1) {
 		switch (c) {
 		case 'p':
@@ -3907,7 +3907,7 @@ zfs_do_list(int argc, char **argv)
 	};
 
 	/* check options */
-	while ((c = getopt_long(argc, argv, "jHS:d:o:prs:t:", long_options,
+	while ((c = getopt_long(argc, argv, "+jHS:d:o:prs:t:", long_options,
 	    NULL)) != -1) {
 		switch (c) {
 		case 'o':
@@ -4805,7 +4805,7 @@ zfs_do_send(int argc, char **argv)
 	};
 
 	/* check options */
-	while ((c = getopt_long(argc, argv, ":i:I:RsDpVvnPLeht:cwbd:SX:U",
+	while ((c = getopt_long(argc, argv, "+:i:I:RsDpVvnPLeht:cwbd:SX:U",
 	    long_options, NULL)) != -1) {
 		switch (c) {
 		case 'X':
@@ -7432,7 +7432,7 @@ share_mount(int op, int argc, char **argv)
 
 	/* check options */
 	while ((c = getopt_long(argc, argv,
-	    op == OP_MOUNT ? ":ajRlvo:Of" : "al",
+	    op == OP_MOUNT ? "+:ajRlvo:Of" : "+al",
 	    op == OP_MOUNT ? long_options : NULL, NULL)) != -1) {
 		switch (c) {
 		case 'a':
@@ -8471,7 +8471,7 @@ zfs_do_channel_program(int argc, char **argv)
 	};
 
 	/* check options */
-	while ((c = getopt_long(argc, argv, "nt:m:j", long_options,
+	while ((c = getopt_long(argc, argv, "+nt:m:j", long_options,
 	    NULL)) != -1) {
 		switch (c) {
 		case 't':
@@ -9375,7 +9375,7 @@ zfs_do_version(int argc, char **argv)
 		{0, 0, 0, 0}
 	};
 
-	while ((c = getopt_long(argc, argv, "j", long_options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "+j", long_options, NULL)) != -1) {
 		switch (c) {
 		case 'j':
 			json = B_TRUE;
