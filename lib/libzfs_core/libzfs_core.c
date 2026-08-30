@@ -700,6 +700,24 @@ max_pipe_buffer(int infd)
 struct send_worker_ctx {
 	int from;	/* read end of pipe, with send data; closed on exit */
 	int to;		/* original arbitrary output fd; mustn't be a pipe */
+	/*
+	 * "to" is only ours to write the stream to; the caller keeps using
+	 * it too.  zfs_send_one()/zfs_send() wrap the whole send, so
+	 * estimate_size()'s "zfs send -nP" output is printed to this very
+	 * fd while the relay below is sitting in splice().
+	 *
+	 * With a NULL off_out, splice() latches "to"'s shared file position
+	 * on entry and writes that latched value back on return -- even
+	 * when it transfers nothing at all.  So a dry run, which relays no
+	 * bytes, still rewinds "to" to where it stood before the caller
+	 * printed anything, and the next line printed lands on top of the
+	 * previous one.
+	 *
+	 * Track our own offset here and hand splice() that instead, so the
+	 * relay never touches "to"'s shared position.
+	 */
+	boolean_t seekable;
+	off_t pos;
 };
 
 static void *
@@ -710,7 +728,8 @@ send_worker(void *arg)
 	ssize_t rd;
 
 	for (;;) {
-		rd = splice(ctx->from, NULL, ctx->to, NULL, bufsiz,
+		rd = splice(ctx->from, NULL, ctx->to,
+		    ctx->seekable ? &ctx->pos : NULL, bufsiz,
 		    SPLICE_F_MOVE | SPLICE_F_MORE);
 		if ((rd == -1 && errno != EINTR) || rd == 0)
 			break;
@@ -749,7 +768,8 @@ lzc_send_wrapper(int (*func)(int, void *), int orig_fd, void *data)
 			(void) max_pipe_buffer(orig_fd);
 		return (func(orig_fd, data));
 	}
-	if ((fcntl(orig_fd, F_GETFL) & O_ACCMODE) == O_RDONLY)
+	int fdflags = fcntl(orig_fd, F_GETFL);
+	if ((fdflags & O_ACCMODE) == O_RDONLY)
 		return (errno = EBADF);
 
 	int rw[2];
@@ -759,6 +779,17 @@ lzc_send_wrapper(int (*func)(int, void *), int orig_fd, void *data)
 	int err;
 	pthread_t send_thread;
 	struct send_worker_ctx ctx = {.from = rw[0], .to = orig_fd};
+	/*
+	 * O_APPEND fds reject an explicit off_out with EINVAL, and they
+	 * can't be rewound into anyway -- every write goes to EOF whatever
+	 * the file position says.  Leave those, and anything unseekable,
+	 * on the implicit offset.
+	 */
+	off_t start = -1;
+	if (fdflags != -1 && !(fdflags & O_APPEND))
+		start = lseek(orig_fd, 0, SEEK_CUR);
+	ctx.seekable = (start != -1);
+	ctx.pos = start;
 	if ((err = pthread_create(&send_thread, NULL, send_worker, &ctx))
 	    != 0) {
 		close(rw[0]);
@@ -773,6 +804,18 @@ lzc_send_wrapper(int (*func)(int, void *), int orig_fd, void *data)
 	pthread_join(send_thread, &send_err);
 	if (err == 0 && send_err != 0)
 		errno = err = (uintptr_t)send_err;
+
+	/*
+	 * splice() wrote at our own offset and left "to"'s shared position
+	 * alone, so advance it over the stream we relayed; a later writer
+	 * sharing this file description (say the second "zfs send" in
+	 * "{ zfs send a; zfs send b; } > file") would otherwise start back
+	 * at the beginning.  Only when we actually relayed something: if we
+	 * relayed nothing, the position is the caller's to keep, and it may
+	 * well have printed with it in the meantime.
+	 */
+	if (ctx.seekable && ctx.pos != start)
+		(void) lseek(orig_fd, ctx.pos, SEEK_SET);
 
 	return (err);
 #else
