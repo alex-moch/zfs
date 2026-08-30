@@ -718,23 +718,65 @@ struct send_worker_ctx {
 	 */
 	boolean_t seekable;
 	off_t pos;
+	/*
+	 * splice() refuses to write to an O_APPEND fd (EINVAL), whatever
+	 * off_out it is given, so such a destination has to be relayed by
+	 * hand instead.  Nothing is lost by it: the whole point of splice()
+	 * here is to move the stream without copying it through userspace,
+	 * and "zfs send >>somewhere" is not the hot path.
+	 */
+	boolean_t copy;
 };
+
+/*
+ * One splice()-shaped read-then-write-it-all pass, for destinations
+ * splice() won't take.  Returns what it moved, 0 at EOF, -1 on error.
+ */
+static ssize_t
+send_copy(int from, int to, char *buf, size_t bufsiz)
+{
+	ssize_t rd = read(from, buf, bufsiz);
+	if (rd <= 0)
+		return (rd);
+
+	for (ssize_t off = 0; off < rd; ) {
+		ssize_t wr = write(to, buf + off, rd - off);
+		if (wr == -1) {
+			if (errno == EINTR)
+				continue;
+			return (-1);
+		}
+		off += wr;
+	}
+	return (rd);
+}
 
 static void *
 send_worker(void *arg)
 {
 	struct send_worker_ctx *ctx = arg;
 	unsigned int bufsiz = max_pipe_buffer(ctx->from);
+	char *buf = NULL;
 	ssize_t rd;
 
+	if (ctx->copy && (buf = malloc(bufsiz)) == NULL) {
+		int err = errno;
+		close(ctx->from);
+		return ((void *)(uintptr_t)err);
+	}
+
 	for (;;) {
-		rd = splice(ctx->from, NULL, ctx->to,
-		    ctx->seekable ? &ctx->pos : NULL, bufsiz,
-		    SPLICE_F_MOVE | SPLICE_F_MORE);
+		if (ctx->copy)
+			rd = send_copy(ctx->from, ctx->to, buf, bufsiz);
+		else
+			rd = splice(ctx->from, NULL, ctx->to,
+			    ctx->seekable ? &ctx->pos : NULL, bufsiz,
+			    SPLICE_F_MOVE | SPLICE_F_MORE);
 		if ((rd == -1 && errno != EINTR) || rd == 0)
 			break;
 	}
 	int err = (rd == -1) ? errno : 0;
+	free(buf);
 	close(ctx->from);
 	return ((void *)(uintptr_t)err);
 }
@@ -790,6 +832,7 @@ lzc_send_wrapper(int (*func)(int, void *), int orig_fd, void *data)
 		start = lseek(orig_fd, 0, SEEK_CUR);
 	ctx.seekable = (start != -1);
 	ctx.pos = start;
+	ctx.copy = (fdflags != -1 && (fdflags & O_APPEND));
 	if ((err = pthread_create(&send_thread, NULL, send_worker, &ctx))
 	    != 0) {
 		close(rw[0]);

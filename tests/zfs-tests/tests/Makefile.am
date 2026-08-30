@@ -2186,6 +2186,7 @@ nobase_dist_datadir_zfs_tests_tests_SCRIPTS += \
 	functional/rsend/send-c_recv_lz4_disabled.ksh \
 	functional/rsend/send-c_resume.ksh \
 	functional/rsend/send-c_stream_size_estimate.ksh \
+	functional/rsend/send_append_redirect.ksh \
 	functional/rsend/send_dryrun_parsable.ksh \
 	functional/rsend/send-c_verify_contents.ksh \
 	functional/rsend/send-c_verify_ratio.ksh \
