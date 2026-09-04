@@ -155,11 +155,25 @@ function is_32bit
 
 # Determine if kmemleak is enabled
 #
+# kmemleak_late_init() creates /sys/kernel/debug/kmemleak before it looks
+# at whether the detector actually came up, so on a
+# CONFIG_DEBUG_KMEMLEAK_DEFAULT_OFF kernel booted without kmemleak=on the
+# file is there and the detector is not.  kmemleak_init() returns ahead of
+# creating the kmemleak_object slab cache in that case, and SLAB_NOLEAKTRACE
+# keeps the cache out of SLAB_MERGE, so it appears in /proc/slabinfo under
+# its own name exactly when kmemleak was started.  Where slabinfo cannot be
+# read, fall back to the file alone; assuming kmemleak is on only costs some
+# coverage, while assuming it is off risks a timeout.
+#
 # Return 0 if kmemleak is enabled, 1 if otherwise
 
 function is_kmemleak
 {
-	is_linux && [ -e /sys/kernel/debug/kmemleak ]
+	is_linux && [ -e /sys/kernel/debug/kmemleak ] || return 1
+
+	[ -r /proc/slabinfo ] || return 0
+
+	grep -q '^kmemleak_object ' /proc/slabinfo
 }
 
 # Determine whether a dataset is mounted
