@@ -27,6 +27,112 @@ function alpine() {
     words xfsprogs xxhash zlib-dev pamtester@testing
   echo "##[endgroup]"
 
+  # Build objtool with and without the AT_MINSIGSTKSZ fix and run both
+  # of them.  This is the end-to-end check that the LD_PRELOAD shim only
+  # stands in for: where the kernel's floor exceeds musl's SIGSTKSZ the
+  # unpatched binary has to abort and the patched one has to run.  On a
+  # host below that floor both run and the result says nothing either
+  # way, so print AT_MINSIGSTKSZ alongside to show which case this is.
+  echo "##[group]objtool on this host"
+  grep -m1 '^model name' /proc/cpuinfo || true
+  sudo apk add elfutils-dev
+
+  cat > /tmp/atmin.c <<'ATMIN'
+#include <signal.h>
+#include <stdio.h>
+#include <sys/auxv.h>
+#ifndef AT_MINSIGSTKSZ
+#define AT_MINSIGSTKSZ	51
+#endif
+int main(void)
+{
+	unsigned long a = getauxval(AT_MINSIGSTKSZ);
+	printf("%lu\n", a);
+	return a > (unsigned long)SIGSTKSZ ? 0 : 1;
+}
+ATMIN
+  cc -o /tmp/atmin /tmp/atmin.c
+  atmin=$(/tmp/atmin) && amx=yes || amx=no
+  echo "AT_MINSIGSTKSZ = $atmin, musl SIGSTKSZ = 8192"
+  echo "above musl's SIGSTKSZ: $amx (if no, this host proves nothing)"
+
+  git clone --depth 1 --filter=blob:none --sparse --no-checkout \
+    https://github.com/torvalds/linux /tmp/linux
+  git -C /tmp/linux sparse-checkout set tools/objtool tools/lib \
+    tools/include tools/arch tools/build tools/scripts scripts \
+    arch/x86/include arch/x86/lib include/linux
+  git -C /tmp/linux checkout
+
+  make -C /tmp/linux/tools/objtool
+  cp /tmp/linux/tools/objtool/objtool /tmp/objtool-unpatched
+
+  python3 - <<'FIX'
+p = "/tmp/linux/tools/objtool/signal.c"
+s = open(p).read()
+
+subs = [
+("#include <sys/resource.h>\n",
+ "#include <sys/resource.h>\n#include <sys/auxv.h>\n"),
+
+("#include <objtool/warn.h>\n\n",
+ "#include <objtool/warn.h>\n\n"
+ "#ifndef AT_MINSIGSTKSZ\n#define AT_MINSIGSTKSZ\t51\n#endif\n\n"),
+
+("\tint signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGABRT};\n"
+ "\tstruct sigaction sa;\n\tstack_t ss;\n",
+ "\tint signals[] = {SIGSEGV, SIGBUS, SIGILL, SIGABRT};\n"
+ "\tstruct sigaction sa;\n\tlong stack_size;\n\tstack_t ss;\n"),
+
+("\tss.ss_sp = malloc(SIGSTKSZ);\n",
+ "\t/*\n"
+ "\t * SIGSTKSZ is a compile-time constant here, and can be smaller\n"
+ "\t * than the signal frame on the running CPU.  AT_MINSIGSTKSZ is\n"
+ "\t * the kernel's own figure for that frame; spend SIGSTKSZ on top\n"
+ "\t * of it for the handler that runs there, as\n"
+ "\t * tools/testing/selftests/signal/sas.c does.  The auxv entry is\n"
+ "\t * absent before v5.14, where getauxval() returns 0 and this is\n"
+ "\t * SIGSTKSZ.\n"
+ "\t */\n"
+ "\tstack_size = getauxval(AT_MINSIGSTKSZ) + SIGSTKSZ;\n\n"
+ "\tss.ss_sp = malloc(stack_size);\n"),
+
+("\tss.ss_size = SIGSTKSZ;\n", "\tss.ss_size = stack_size;\n"),
+]
+
+for old, repl in subs:
+    if s.count(old) != 1:
+        raise SystemExit("signal.c has moved: %d matches for %r"
+                         % (s.count(old), old[:40]))
+    s = s.replace(old, repl)
+
+open(p, "w").write(s)
+print("patched signal.c")
+FIX
+  make -C /tmp/linux/tools/objtool
+  cp /tmp/linux/tools/objtool/objtool /tmp/objtool-patched
+
+  # A real object file to chew on, so this exercises more than --help.
+  obj=$(find /usr/src /lib/modules -name '*.o' 2>/dev/null | head -1)
+
+  # The discriminator is objtool's own message, not the exit status:
+  # "check" on an arbitrary object can fail for unrelated reasons, but
+  # only a refused sigaltstack() stops it before it does any work.
+  for bin in /tmp/objtool-unpatched /tmp/objtool-patched; do
+    echo "--- $bin ---"
+    out=$("$bin" --help 2>&1 || true)
+    if echo "$out" | grep -q "sigaltstack failed"; then
+      echo "RESULT: aborted at sigaltstack"
+    else
+      echo "RESULT: started up"
+    fi
+    echo "$out" | head -3
+    if [ -n "$obj" ]; then
+      echo "check $obj:"
+      "$bin" check "$obj" 2>&1 | head -3 || true
+    fi
+  done
+  echo "##[endgroup]"
+
   echo "##[group]Switch to eudev"
   sudo setup-devd udev
   echo "##[endgroup]"
