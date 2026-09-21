@@ -145,6 +145,16 @@ noreuse_reason = 'POSIX_FADV_NOREUSE needs Linux 6.3+'
 dontcache_reason = 'Kernel RWF_DONTCACHE support required'
 
 #
+# Some tests are not applicable on kernels where splice(2) does not
+# serialize the file position against read(2)/write(2)/lseek(2).
+# lzc_send_wrapper() splices a send stream through a pipe from one
+# thread while another writes to the same fd, so a dry run can rewind
+# the offset and land the summary lines on top of each other.  Nothing
+# in ZFS can prevent that from userspace.
+#
+splice_fpos_reason = 'Kernel splice(2) does not lock the file position'
+
+#
 # Some statx fields are not supported by all kernels
 #
 statx_reason = 'Needed statx(2) field not supported on this kernel'
@@ -234,6 +244,7 @@ maybe = {
     'pool_checkpoint/checkpoint_discard_busy': ['FAIL', 11946],
     'projectquota/setup': ['SKIP', exec_reason],
     'renameat2/setup': ['SKIP', renameat2_reason],
+    'rsend/send-c_stream_size_estimate': ['FAIL', splice_fpos_reason],
     'send_xdr_encoding/xdr_bookmark_raw_with_write': ['FAIL', 18491],
     'send_xdr_encoding/xdr_resume_bookmark_raw_with_write': ['FAIL', 18491],
     'trim/setup': ['SKIP', trim_reason],
