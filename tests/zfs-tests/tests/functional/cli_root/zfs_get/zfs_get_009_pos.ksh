@@ -36,10 +36,6 @@
 
 verify_runnable "both"
 
-if is_kmemleak; then
-	log_unsupported "Test case runs slowly when kmemleak is enabled"
-fi
-
 log_assert "'zfs get -d <n>' should get expected output."
 log_onexit depth_fs_cleanup
 

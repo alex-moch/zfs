@@ -637,7 +637,7 @@ pre =
 quiet = $SINGLEQUIET
 pre_user = root
 user = $SINGLETESTUSER
-timeout = 600
+timeout = 10800
 post_user = root
 post =
 EOF

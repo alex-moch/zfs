@@ -258,7 +258,8 @@ case "$OS" in
     KMEMLEAK="-m"
     ;;
 esac
-$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T $TAGS || RV=$?
+# DEBUG: time zfs_get_009_pos alone under kmemleak, on both VMs.
+$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -t zfs_get_009_pos || RV=$?
 
 df -h > df-postrun.txt
 echo $RV > tests-exitcode.txt

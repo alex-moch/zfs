@@ -59,8 +59,8 @@ jobs:
             os_selection='["freebsd14-4r", "freebsd14-5s", "freebsd15-1r", "freebsd15-1s", "freebsd16-0c"]'
             ;;
           *)
-            # default list
-            os_selection='["almalinux8", "almalinux9", "almalinux10", "alpine3-24", "debian12", "debian13", "fedora43", "fedora44", "freebsd14-4r", "freebsd15-1r", "freebsd15-1s", "freebsd16-0c", "ubuntu22", "ubuntu24", "ubuntu26"]'
+            # DEBUG: 40 kmemleak Alpine runners.
+            os_selection='["alpine3-24-kmemleak-01", "alpine3-24-kmemleak-02", "alpine3-24-kmemleak-03", "alpine3-24-kmemleak-04", "alpine3-24-kmemleak-05", "alpine3-24-kmemleak-06", "alpine3-24-kmemleak-07", "alpine3-24-kmemleak-08", "alpine3-24-kmemleak-09", "alpine3-24-kmemleak-10", "alpine3-24-kmemleak-11", "alpine3-24-kmemleak-12", "alpine3-24-kmemleak-13", "alpine3-24-kmemleak-14", "alpine3-24-kmemleak-15", "alpine3-24-kmemleak-16", "alpine3-24-kmemleak-17", "alpine3-24-kmemleak-18", "alpine3-24-kmemleak-19", "alpine3-24-kmemleak-20", "alpine3-24-kmemleak-21", "alpine3-24-kmemleak-22", "alpine3-24-kmemleak-23", "alpine3-24-kmemleak-24", "alpine3-24-kmemleak-25", "alpine3-24-kmemleak-26", "alpine3-24-kmemleak-27", "alpine3-24-kmemleak-28", "alpine3-24-kmemleak-29", "alpine3-24-kmemleak-30", "alpine3-24-kmemleak-31", "alpine3-24-kmemleak-32", "alpine3-24-kmemleak-33", "alpine3-24-kmemleak-34", "alpine3-24-kmemleak-35", "alpine3-24-kmemleak-36", "alpine3-24-kmemleak-37", "alpine3-24-kmemleak-38", "alpine3-24-kmemleak-39", "alpine3-24-kmemleak-40"]'
             ;;
           esac
 
