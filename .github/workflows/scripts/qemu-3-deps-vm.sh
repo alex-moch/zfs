@@ -363,6 +363,12 @@ case "$1" in
       # linux-stable has kmemleak built in, but off by default.
       sudo sed -i '/^\s*cmdline:/s/$/ kmemleak=on/' /boot/limine/limine.conf
     fi
+    if [[ "$1" == *nosrso* ]]; then
+      sudo sed -i '/^\s*cmdline:/s/$/ spec_rstack_overflow=off/' /boot/limine/limine.conf
+    fi
+    if [[ "$1" == *nomit* ]]; then
+      sudo sed -i '/^\s*cmdline:/s/$/ mitigations=off/' /boot/limine/limine.conf
+    fi
     ;;
   archlinux|freebsd*)
     true
