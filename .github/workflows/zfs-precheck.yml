@@ -12,8 +12,6 @@ name: zfs-precheck
 # script; see scripts/failfirst-detect.py.
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
     inputs:
       base:
