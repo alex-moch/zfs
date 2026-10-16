@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: CDDL-1.0
+#
+# DEBUG: repeat zpool_offline_spare after the zpool_expand group, which
+# starts and stops ZED on every pass. Run with
+# zfs-tests.sh -r expspare -I <n>.
+#
+
+[DEFAULT]
+pre = setup
+quiet = False
+pre_user = root
+user = root
+timeout = 600
+post_user = root
+post = cleanup
+failsafe_user = root
+failsafe = callbacks/zfs_failsafe
+tags = ['functional']
+
+[tests/functional/cli_root/zpool_expand]
+tests = ['zpool_expand_001_pos', 'zpool_expand_006_pos']
+tags = ['functional', 'cli_root', 'zpool_expand']
+
+[tests/functional/cli_root/zpool_offline]
+tests = ['zpool_offline_spare']
+tags = ['functional', 'cli_root', 'zpool_offline']

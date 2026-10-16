@@ -3364,6 +3364,16 @@ vdev_dtl_should_excise(vdev_t *vd, boolean_t rebuild_done)
 		 * scan (i.e. it is not in the range (scn_min_txg, scn_max_txg]
 		 * then it is not eligible for excision.
 		 */
+		/* DEBUG: values behind the resilver_txg assertion */
+		zfs_dbgmsg("DEBUG excise %s resilver_txg=%llu dtl=[%llu,%llu] "
+		    "scn=[%llu,%llu] offline=%d state=%d",
+		    vd->vdev_path != NULL ? vd->vdev_path : "-",
+		    (u_longlong_t)vd->vdev_resilver_txg,
+		    (u_longlong_t)vdev_dtl_min(vd),
+		    (u_longlong_t)vdev_dtl_max(vd),
+		    (u_longlong_t)scn->scn_phys.scn_min_txg,
+		    (u_longlong_t)scn->scn_phys.scn_max_txg,
+		    (int)vd->vdev_offline, (int)vd->vdev_state);
 		if (vdev_dtl_max(vd) <= scn->scn_phys.scn_max_txg) {
 			ASSERT3U(scnp->scn_min_txg, <=, vdev_dtl_min(vd));
 			ASSERT3U(scnp->scn_min_txg, <, vd->vdev_resilver_txg);
@@ -3515,6 +3525,12 @@ vdev_dtl_reassess_impl(vdev_t *vd, uint64_t txg, uint64_t scrub_txg,
 				vd->vdev_rebuild_txg = 0;
 				vdev_config_dirty(vd->vdev_top);
 			} else if (vd->vdev_resilver_txg != 0) {
+				/* DEBUG */
+				zfs_dbgmsg("DEBUG reset resilver_txg %s %llu "
+				    "txg=%llu", vd->vdev_path != NULL ?
+				    vd->vdev_path : "-",
+				    (u_longlong_t)vd->vdev_resilver_txg,
+				    (u_longlong_t)txg);
 				vd->vdev_resilver_txg = 0;
 				vdev_config_dirty(vd->vdev_top);
 			}
