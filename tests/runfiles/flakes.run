@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: CDDL-1.0
+#
+# DEBUG: tests seen failing on the Alpine runner that are not tracked
+# anywhere else. Run repeatedly with zfs-tests.sh -r flakes -I <n>.
+#
+
+[DEFAULT]
+pre = setup
+quiet = False
+pre_user = root
+user = root
+timeout = 600
+post_user = root
+post = cleanup
+failsafe_user = root
+failsafe = callbacks/zfs_failsafe
+tags = ['functional']
+
+[tests/functional/cli_root/zpool_expand]
+tests = ['zpool_expand_001_pos', 'zpool_expand_006_pos']
+tags = ['functional', 'cli_root', 'zpool_expand']
+
+[tests/functional/cli_root/zpool_import]
+tests = ['zpool_import_errata4']
+tags = ['functional', 'cli_root', 'zpool_import']
+timeout = 1200
+
+[tests/functional/cli_root/zpool_offline]
+tests = ['zpool_offline_spare']
+tags = ['functional', 'cli_root', 'zpool_offline']
+
+[tests/functional/features/large_dnode]
+tests = ['large_dnode_008_pos']
+tags = ['functional', 'features', 'large_dnode']
+
+[tests/functional/rsend]
+tests = ['send_encrypted_freeobjects']
+tags = ['functional', 'rsend']
+
+[tests/functional/zvol/zvol_stress]
+tests = ['zvol_stress', 'zvol_stress_destroy']
+tags = ['functional', 'zvol', 'zvol_stress']
