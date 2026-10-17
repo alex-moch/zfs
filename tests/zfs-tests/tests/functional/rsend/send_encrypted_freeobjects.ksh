@@ -42,9 +42,27 @@ function create_object_with_num
 	file=$1
 	num=$2
 
+	#
+	# New objects come from a per-CPU chunk of 128 dnodes, and the number
+	# of a removed file is not handed out again right away. So $num only
+	# comes up on the CPU whose chunk holds it, or on a CPU that starts a
+	# new chunk there. Run each touch on the next CPU where we can.
+	#
+	typeset -i ncpu=$(get_num_cpus)
+	typeset pin=""
+	if is_linux; then
+		pin="taskset -c"
+	elif is_freebsd; then
+		pin="cpuset -l"
+	fi
+
 	tries=100
 	for ((i=0; i<$tries; i++)); do
-		touch $file
+		if [[ -n "$pin" ]]; then
+			$pin $((i % ncpu)) touch $file 2>/dev/null || touch $file
+		else
+			touch $file
+		fi
 		onum=$(ls -li $file | awk '{print $1}')
 
 		if [[ $onum -ne $num ]] ; then
