@@ -34,6 +34,15 @@
  */
 uint_t dmu_object_alloc_chunk_shift = 7;
 
+/*
+ * DEBUG: count per-CPU chunks that are replaced before they are used up,
+ * and dnode slots skipped after a failed hold, to find the holes that
+ * large_dnode_008_pos reports.
+ */
+static uint_t zfs_debug_objalloc_chunk_lost = 0;
+static uint_t zfs_debug_objalloc_chunk_lost_slots = 0;
+static uint_t zfs_debug_objalloc_skip_slots = 0;
+
 static uint64_t
 dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
     int indirect_blockshift, dmu_object_type_t bonustype, int bonuslen,
@@ -46,6 +55,7 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 	int dn_slots = dnodesize >> DNODE_SHIFT;
 	boolean_t restarted = B_FALSE;
 	uint64_t *cpuobj = NULL;
+	uint64_t seen, old, failed;	/* DEBUG */
 	uint_t dnodes_per_chunk = 1 << dmu_object_alloc_chunk_shift;
 	int error;
 
@@ -94,6 +104,7 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 		    (P2PHASE(object + dn_slots - 1, dnodes_per_chunk) <
 		    dn_slots)) {
 			DNODE_STAT_BUMP(dnode_alloc_next_chunk);
+			seen = object;
 			mutex_enter(&os->os_obj_lock);
 			ASSERT0(P2PHASE(os->os_obj_next_chunk,
 			    dnodes_per_chunk));
@@ -153,8 +164,17 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 			os->os_obj_next_chunk =
 			    P2ALIGN_TYPED(object, dnodes_per_chunk, uint64_t) +
 			    dnodes_per_chunk;
-			(void) atomic_swap_64(cpuobj, object);
+			old = atomic_swap_64(cpuobj, object);
 			mutex_exit(&os->os_obj_lock);
+			/* DEBUG: another thread refilled this slot meanwhile */
+			if (old != seen &&
+			    P2PHASE(old, dnodes_per_chunk) != 0) {
+				uint32_t left = (uint32_t)
+				    (P2ROUNDUP(old, dnodes_per_chunk) - old);
+				atomic_inc_32(&zfs_debug_objalloc_chunk_lost);
+				atomic_add_32(
+				    &zfs_debug_objalloc_chunk_lost_slots, left);
+			}
 		}
 
 		/*
@@ -205,10 +225,15 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 		 * Skip to next known valid starting point on error.  This
 		 * is the start of the next block of dnodes.
 		 */
+		failed = object;
 		if (dmu_object_next(os, &object, B_TRUE, 0) != 0) {
 			object = P2ROUNDUP(object + 1, DNODES_PER_BLOCK);
 			DNODE_STAT_BUMP(dnode_alloc_next_block);
 		}
+		/* DEBUG: slots skipped after a failed hold */
+		if (object > failed + dn_slots)
+			atomic_add_32(&zfs_debug_objalloc_skip_slots,
+			    (uint32_t)(object - failed - dn_slots));
 		(void) atomic_swap_64(cpuobj, object);
 	}
 }
@@ -512,3 +537,12 @@ EXPORT_SYMBOL(dmu_object_free_zapified);
 
 ZFS_MODULE_PARAM(zfs, , dmu_object_alloc_chunk_shift, UINT, ZMOD_RW,
 	"CPU-specific allocator grabs 2^N objects at once");
+
+ZFS_MODULE_PARAM(zfs, zfs_, debug_objalloc_chunk_lost, UINT, ZMOD_RW,
+	"DEBUG: per-CPU chunks replaced before they were used up");
+
+ZFS_MODULE_PARAM(zfs, zfs_, debug_objalloc_chunk_lost_slots, UINT, ZMOD_RW,
+	"DEBUG: dnode slots left in replaced per-CPU chunks");
+
+ZFS_MODULE_PARAM(zfs, zfs_, debug_objalloc_skip_slots, UINT, ZMOD_RW,
+	"DEBUG: dnode slots skipped after a failed dnode hold");

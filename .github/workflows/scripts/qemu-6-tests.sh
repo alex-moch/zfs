@@ -254,7 +254,12 @@ df -h > df-prerun.txt
 RV=0
 KMEMLEAK=""
 grep -qw kmemleak=on /proc/cmdline && KMEMLEAK="-m"
-$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T $TAGS || RV=$?
+# DEBUG: repeat the tests behind the open flakes (verify.run) with a panic
+# and hang watchdog.
+$HOME/zfs/.github/workflows/scripts/qemu-6-watchdog.sh &
+WATCHDOG=$!
+$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -r verify -I 250 || RV=$?
+kill $WATCHDOG 2>/dev/null || true
 
 df -h > df-postrun.txt
 echo $RV > tests-exitcode.txt
