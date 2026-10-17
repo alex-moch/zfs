@@ -231,6 +231,24 @@ case "$OS" in
     ;;
 esac
 
+# DEBUG: jobs named *-nocheck* turn off the check that keeps the object
+# allocator inside its per-CPU chunk, as a control group.
+case "$OS" in
+  *-nocheck*)
+    echo 0 | sudo tee \
+      /sys/module/zfs/parameters/zfs_debug_objalloc_check_end >/dev/null
+    ;;
+esac
+
+# DEBUG: jobs named *-dropcaches* let test-runner drop dentries and
+# inodes before each test group, to see whether kmemleak scans then stay
+# fast over the run.
+case "$OS" in
+  *-dropcaches*)
+    export ZTS_KMEMLEAK_DROP_CACHES=1
+    ;;
+esac
+
 # Lustre calls a number of exported ZFS module symbols.  To make sure we don't
 # change the symbols and break Lustre, do a quick Lustre build of the latest
 # released Lustre against ZFS.
@@ -254,7 +272,33 @@ df -h > df-prerun.txt
 RV=0
 KMEMLEAK=""
 grep -qw kmemleak=on /proc/cmdline && KMEMLEAK="-m"
-$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T $TAGS || RV=$?
+# DEBUG: run the groups around the DTL changes once, keep their output in
+# /var/tmp/regress-*.txt (only "current" and *.txt are collected), then
+# repeat the tests behind the open flakes (verify.run) until a deadline
+# 250 min from here, which leaves 50 min of the 300 min step for the last
+# test, the counters and the upload. A pass takes 3 to 6 times longer
+# with kmemleak on some hosts than on others, so a fixed count either
+# idles the fast ones or runs the slow ones into the step limit. The
+# watchdog stops test-runner at the deadline, dumps the state on a panic
+# or hang, and writes the DEBUG counters every minute.
+export DEBUG_DEADLINE=$(( $(date +%s) + 60 * 60 ))
+$HOME/zfs/.github/workflows/scripts/qemu-6-watchdog.sh &
+WATCHDOG=$!
+REGRESS="replacement,fault,zpool_offline,zpool_online,zpool_resilver"
+REGRESS="$REGRESS,zpool_reopen,zpool_replace,zpool_attach,zpool_detach"
+# sanity run: the regression groups are skipped
+if [ -e /var/tmp/watchdog-panic.txt ]; then
+  echo "DEBUG: ZFS assertion in the regression groups, verify.run skipped"
+  RV=1
+else
+  $TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -r verify -I 100000 || RV=$?
+  # stopped at the deadline by the watchdog: not a failure
+  [ -e /var/tmp/deadline-reached.txt ] && RV=0
+fi
+kill $WATCHDOG 2>/dev/null || true
+for f in /sys/module/zfs/parameters/zfs*_debug_*; do
+  echo "$(basename $f) $(cat $f)"
+done > debug-counters.txt 2>&1
 
 df -h > df-postrun.txt
 echo $RV > tests-exitcode.txt

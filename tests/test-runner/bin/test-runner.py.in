@@ -676,6 +676,15 @@ Tags: %s
         if options.tags and not set(self.tags).intersection(set(options.tags)):
             return
 
+        # DEBUG: with kmemleak, every scan walks all tracked objects,
+        # including the dentries and inodes earlier groups left behind.
+        # Drop them before this group's setup, while no test pool exists.
+        # Opt-in through ZTS_KMEMLEAK_DROP_CACHES=1 for the A/B run.
+        if (options.kmemleak and not dryrun and
+                os.environ.get('ZTS_KMEMLEAK_DROP_CACHES') == '1'):
+            cmd = f'{SUDO} sh -c "echo 2 > /proc/sys/vm/drop_caches"'
+            check_output(cmd, shell=True)
+
         odir = os.path.join(self.outputdir, os.path.basename(self.pre))
         pretest = Cmd(self.pre, outputdir=odir, timeout=self.timeout,
                       user=self.pre_user, identifier=self.identifier)

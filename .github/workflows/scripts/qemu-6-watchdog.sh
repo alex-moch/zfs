@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# DEBUG: while ZTS runs, dump kernel and pool state to
+# /var/tmp/watchdog-*.txt, which qemu-7-prepare.sh collects.
+# - On a ZFS assertion (PANIC at ...) dump once right away, then stop
+#   test-runner. The panicking thread never returns, so every later test
+#   would only hang and get KILLED.
+# - When the test log has not changed for 300 s, dump at most every
+#   10 min and 6 times in total.
+# - At $DEBUG_DEADLINE (seconds since the epoch) stop test-runner, so
+#   that the job ends before the step limit with all its logs.
+# - Write the DEBUG counters to /var/tmp/debug-counters.txt every minute,
+#   so that they survive a job that is killed anyway.
+# - Every 10 min append the objects kmemleak tracks, the largest slab
+#   caches and the time of one kmemleak scan to
+#   /var/tmp/kmemleak-samples.txt, to see what makes scans slower.
+# The debug log is read before any zpool command, and every zpool command
+# runs under timeout, since they block on a pool whose txg_sync is stuck.
+log=/var/tmp/test_results/current/log
+echo 1 | sudo tee /proc/sys/kernel/sysrq >/dev/null
+
+dump() {
+  echo "=== $(date -u) $1"
+  echo "=== last test lines"; tail -20 "$log" 2>&1
+  echo "=== kernel messages"; sudo dmesg | grep -v 'sysrq: Show' | tail -150
+  echo "=== D-state tasks"; ps -eo pid,stat,etime,wchan:32,args | awk 'NR==1 || $2 ~ /D/'
+  for p in $(ps -eo pid,stat | awk '$2 ~ /D/ {print $1}'); do
+    echo "--- /proc/$p/stack ($(cat "/proc/$p/comm" 2>/dev/null))"; sudo cat /proc/"$p"/stack 2>&1
+  done
+  echo "=== ZFS kernel threads"
+  for p in $(ps -eo pid,comm | awk '$2 ~ /^(txg_|z_|spa_|dp_|vdev_|l2arc|arc_|zthr)/ {print $1}'); do
+    st=$(sudo cat /proc/"$p"/stack 2>&1)
+    echo "$st" | grep -q 'cv_wait\|spl_panic\|mutex\|rwsem\|zio_wait' || continue
+    echo "--- /proc/$p/stack ($(cat "/proc/$p/comm" 2>/dev/null))"; echo "$st"
+  done
+  echo "=== zfs/zpool processes"; ps -eo pid,stat,etime,wchan:32,args | grep -E '[z]pool|[z]fs |[z]inject|[z]ed|[k]sh .*\.ksh'
+  echo "=== zfs dbgmsg"; sudo tail -4000 /proc/spl/kstat/zfs/dbgmsg 2>&1
+  echo "=== zpool status"; sudo timeout -k 5 20 zpool status -v 2>&1 | head -100
+  echo "=== zpool events"; sudo timeout -k 5 20 zpool events -v 2>&1 | tail -600
+  echo "=== zpool history"; sudo timeout -k 5 20 zpool history -il 2>&1 | tail -100
+  echo "=== sysrq w (blocked tasks)"; echo w | sudo tee /proc/sysrq-trigger >/dev/null; sleep 2
+  sudo dmesg | sed -n '/sysrq: Show Blocked State/,$p' | tail -400
+}
+
+counters() {
+  for f in /sys/module/zfs/parameters/zfs*_debug_*; do
+    echo "$(basename $f) $(cat $f)"
+  done > /var/tmp/debug-counters.txt 2>&1
+}
+
+samples() {
+  local k=/sys/kernel/debug/kmemleak t0 t1
+  [ -w "$k" ] || sudo test -e "$k" || return 0
+  t0=$(date +%s%N)
+  sudo sh -c "echo scan > $k" 2>/dev/null
+  t1=$(date +%s%N)
+  {
+    echo "=== $(date -u +%FT%TZ) scan_ms=$(( (t1 - t0) / 1000000 ))"
+    sudo awk 'NR > 2 {print $2, $1, $4}' /proc/slabinfo | sort -rn | head -12
+    grep -E '^(Slab|SUnreclaim|VmallocUsed):' /proc/meminfo
+    awk '$1 == "size" {print "arc_size", $3}' /proc/spl/kstat/zfs/arcstats
+  } >> /var/tmp/kmemleak-samples.txt 2>&1
+}
+
+n=0; last=0; tick=0
+while true; do
+  sleep 10
+  tick=$((tick + 1))
+  [ $((tick % 6)) -eq 0 ] && counters
+  [ $((tick % 60)) -eq 1 ] && samples
+  if [ -n "${DEBUG_DEADLINE:-}" ] && [ "$(date +%s)" -ge "$DEBUG_DEADLINE" ]; then
+    counters
+    date -u > /var/tmp/deadline-reached.txt
+    sudo pkill -f '/test-runner\.py' || true
+    exit 0
+  fi
+  if sudo dmesg | grep -q 'PANIC at '; then
+    dump "ZFS assertion" > /var/tmp/watchdog-panic.txt 2>&1
+    sudo pkill -f '/test-runner\.py' || true
+    exit 0
+  fi
+  [ -e "$log" ] && [ $n -lt 6 ] || continue
+  now=$(date +%s); age=$(( now - $(stat -c %Y "$log") ))
+  [ $age -ge 300 ] && [ $(( now - last )) -ge 600 ] || continue
+  n=$((n + 1)); last=$now
+  dump "log unchanged for ${age}s" > /var/tmp/watchdog-$n.txt 2>&1
+done
