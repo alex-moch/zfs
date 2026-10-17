@@ -673,6 +673,8 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	os->os_obj_next_percpu_len = boot_ncpus;
 	os->os_obj_next_percpu = kmem_zalloc(os->os_obj_next_percpu_len *
 	    sizeof (os->os_obj_next_percpu[0]), KM_SLEEP);
+	os->os_obj_next_percpu_end = kmem_zalloc(os->os_obj_next_percpu_len *
+	    sizeof (os->os_obj_next_percpu_end[0]), KM_SLEEP);
 
 	dnode_special_open(os, &os->os_phys->os_meta_dnode,
 	    DMU_META_DNODE_OBJECT, &os->os_meta_dnode);
@@ -1043,6 +1045,8 @@ dmu_objset_evict_done(objset_t *os)
 
 	kmem_free(os->os_obj_next_percpu,
 	    os->os_obj_next_percpu_len * sizeof (os->os_obj_next_percpu[0]));
+	kmem_free(os->os_obj_next_percpu_end, os->os_obj_next_percpu_len *
+	    sizeof (os->os_obj_next_percpu_end[0]));
 
 	mutex_destroy(&os->os_lock);
 	mutex_destroy(&os->os_userused_lock);
