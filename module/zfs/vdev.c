@@ -3507,10 +3507,12 @@ vdev_dtl_reassess_impl(vdev_t *vd, uint64_t txg, uint64_t scrub_txg,
 		 * If the vdev was resilvering or rebuilding and no longer
 		 * has any DTLs then reset the appropriate flag and dirty
 		 * the top level so that we persist the change.
+		 * DTL_OUTAGE is not checked: it covers everything while the
+		 * vdev cannot be read. An empty DTL_MISSING means the vdev
+		 * has all the data.
 		 */
 		if (txg != 0 &&
-		    zfs_range_tree_is_empty(vd->vdev_dtl[DTL_MISSING]) &&
-		    zfs_range_tree_is_empty(vd->vdev_dtl[DTL_OUTAGE])) {
+		    zfs_range_tree_is_empty(vd->vdev_dtl[DTL_MISSING])) {
 			if (vd->vdev_rebuild_txg != 0) {
 				vd->vdev_rebuild_txg = 0;
 				vdev_config_dirty(vd->vdev_top);
