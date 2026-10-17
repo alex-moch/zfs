@@ -46,11 +46,16 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 	int dn_slots = dnodesize >> DNODE_SHIFT;
 	boolean_t restarted = B_FALSE;
 	uint64_t *cpuobj = NULL;
+	uint64_t *cpuend = NULL;
+	uint64_t cur;
+	uint64_t end_before, end_after;
+	boolean_t taken_over = B_FALSE;
 	uint_t dnodes_per_chunk = 1 << dmu_object_alloc_chunk_shift;
 	int error;
 
-	cpuobj = &os->os_obj_next_percpu[CPU_SEQID_UNSTABLE %
-	    os->os_obj_next_percpu_len];
+	int slot = CPU_SEQID_UNSTABLE % os->os_obj_next_percpu_len;
+	cpuobj = &os->os_obj_next_percpu[slot];
+	cpuend = &os->os_obj_next_percpu_end[slot];
 
 	if (dn_slots == 0) {
 		dn_slots = DNODE_MIN_SLOTS;
@@ -90,11 +95,26 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 		 * If we finished a chunk of dnodes, get a new one from
 		 * the global allocator.
 		 */
-		if ((P2PHASE(object, dnodes_per_chunk) == 0) ||
+		if (!taken_over &&
+		    ((P2PHASE(object, dnodes_per_chunk) == 0) ||
 		    (P2PHASE(object + dn_slots - 1, dnodes_per_chunk) <
-		    dn_slots)) {
+		    dn_slots))) {
 			DNODE_STAT_BUMP(dnode_alloc_next_chunk);
 			mutex_enter(&os->os_obj_lock);
+			/*
+			 * Another thread on this slot may have refilled it
+			 * while we waited. Use that chunk instead of leaving
+			 * the rest of it unused.
+			 */
+			cur = atomic_load_64(cpuobj);
+			if (cur != object &&
+			    cur + dnodes_per_chunk >= *cpuend &&
+			    cur + dn_slots <= *cpuend) {
+				mutex_exit(&os->os_obj_lock);
+				object = cur;
+				taken_over = B_TRUE;
+				continue;
+			}
 			ASSERT0(P2PHASE(os->os_obj_next_chunk,
 			    dnodes_per_chunk));
 			object = os->os_obj_next_chunk;
@@ -153,16 +173,33 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 			os->os_obj_next_chunk =
 			    P2ALIGN_TYPED(object, dnodes_per_chunk, uint64_t) +
 			    dnodes_per_chunk;
+			*cpuend = os->os_obj_next_chunk;
 			(void) atomic_swap_64(cpuobj, object);
 			mutex_exit(&os->os_obj_lock);
 		}
+
+		taken_over = B_FALSE;
 
 		/*
 		 * The value of (*cpuobj) before adding dn_slots is the object
 		 * ID assigned to us.  The value afterwards is the object ID
 		 * assigned to whoever wants to do an allocation next.
 		 */
+		end_before = atomic_load_64(cpuend);
 		object = atomic_add_64_nv(cpuobj, dn_slots) - dn_slots;
+		end_after = atomic_load_64(cpuend);
+
+		/*
+		 * A number past the end of the slot's chunk lies in a chunk
+		 * that may go to another slot. Take a new chunk instead,
+		 * unless a refill between the two reads moved the end.
+		 */
+		if (object + dn_slots > end_before &&
+		    (object + dnodes_per_chunk < end_after ||
+		    object + dn_slots > end_after)) {
+			object = end_before;
+			continue;
+		}
 
 		/*
 		 * XXX We should check for an i/o error here and return
