@@ -42,7 +42,13 @@ function create_object_with_num
 	file=$1
 	num=$2
 
-	tries=100
+	#
+	# New objects come from a per-CPU chunk of 128 dnodes, and the number
+	# of a removed file is not handed out again right away. When every
+	# touch runs on the CPU that holds the first chunk, $num is only
+	# reached once that chunk is used up, after about 120 tries.
+	#
+	tries=256
 	for ((i=0; i<$tries; i++)); do
 		touch $file
 		onum=$(ls -li $file | awk '{print $1}')
