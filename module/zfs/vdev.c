@@ -3595,8 +3595,12 @@ void
 vdev_dtl_reassess(vdev_t *vd, uint64_t txg, uint64_t scrub_txg,
     boolean_t scrub_done, boolean_t rebuild_done)
 {
-	return (vdev_dtl_reassess_impl(vd, txg, scrub_txg, scrub_done,
-	    rebuild_done, B_FALSE));
+	spa_t *spa = vd->vdev_spa;
+
+	mutex_enter(&spa->spa_dtl_reassess_lock);
+	vdev_dtl_reassess_impl(vd, txg, scrub_txg, scrub_done,
+	    rebuild_done, B_FALSE);
+	mutex_exit(&spa->spa_dtl_reassess_lock);
 }
 
 /*
@@ -3854,12 +3858,17 @@ vdev_dtl_required(vdev_t *vd)
 	 * Temporarily mark the device as unreadable, and then determine
 	 * whether this results in any DTL outages in the top-level vdev.
 	 * If not, we can safely offline/detach/remove the device.
+	 * SCL_STATE_ALL does not exclude syncing context, so hold
+	 * spa_dtl_reassess_lock to keep a reassess there from seeing the
+	 * device as temporarily unreadable.
 	 */
+	mutex_enter(&spa->spa_dtl_reassess_lock);
 	vd->vdev_cant_read = B_TRUE;
 	vdev_dtl_reassess_impl(tvd, 0, 0, B_FALSE, B_FALSE, faulting);
 	required = !vdev_dtl_empty(tvd, DTL_OUTAGE);
 	vd->vdev_cant_read = cant_read;
 	vdev_dtl_reassess_impl(tvd, 0, 0, B_FALSE, B_FALSE, faulting);
+	mutex_exit(&spa->spa_dtl_reassess_lock);
 
 	if (!required && zio_injection_enabled) {
 		required = !!zio_handle_device_injection(vd, NULL,
