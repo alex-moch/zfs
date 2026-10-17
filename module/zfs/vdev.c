@@ -77,6 +77,9 @@
  */
 static uint_t zfs_embedded_slog_min_ms = 64;
 
+/* DEBUG: resilver_txg resets with a non-empty DTL_OUTAGE */
+static uint_t zfs_vdev_debug_reset_outage = 0;
+
 /* default target for number of metaslabs per top-level vdev */
 static uint_t zfs_vdev_default_ms_count = 200;
 
@@ -3364,6 +3367,16 @@ vdev_dtl_should_excise(vdev_t *vd, boolean_t rebuild_done)
 		 * scan (i.e. it is not in the range (scn_min_txg, scn_max_txg]
 		 * then it is not eligible for excision.
 		 */
+		/* DEBUG: values behind the resilver_txg assertion */
+		zfs_dbgmsg("DEBUG excise %s resilver_txg=%llu dtl=[%llu,%llu] "
+		    "scn=[%llu,%llu] offline=%d state=%d",
+		    vd->vdev_path != NULL ? vd->vdev_path : "-",
+		    (u_longlong_t)vd->vdev_resilver_txg,
+		    (u_longlong_t)vdev_dtl_min(vd),
+		    (u_longlong_t)vdev_dtl_max(vd),
+		    (u_longlong_t)scn->scn_phys.scn_min_txg,
+		    (u_longlong_t)scn->scn_phys.scn_max_txg,
+		    (int)vd->vdev_offline, (int)vd->vdev_state);
 		if (vdev_dtl_max(vd) <= scn->scn_phys.scn_max_txg) {
 			ASSERT3U(scnp->scn_min_txg, <=, vdev_dtl_min(vd));
 			ASSERT3U(scnp->scn_min_txg, <, vd->vdev_resilver_txg);
@@ -3520,6 +3533,20 @@ vdev_dtl_reassess_impl(vdev_t *vd, uint64_t txg, uint64_t scrub_txg,
 				vd->vdev_rebuild_txg = 0;
 				vdev_config_dirty(vd->vdev_top);
 			} else if (vd->vdev_resilver_txg != 0) {
+				/* DEBUG: count resets the old code skipped */
+				boolean_t outage = !zfs_range_tree_is_empty(
+				    vd->vdev_dtl[DTL_OUTAGE]);
+				if (outage)
+					atomic_inc_32(
+					    &zfs_vdev_debug_reset_outage);
+				zfs_dbgmsg("DEBUG reset resilver_txg %s %llu "
+				    "txg=%llu outage=%d offline=%d state=%d",
+				    vd->vdev_path != NULL ?
+				    vd->vdev_path : "-",
+				    (u_longlong_t)vd->vdev_resilver_txg,
+				    (u_longlong_t)txg, (int)outage,
+				    (int)vd->vdev_offline,
+				    (int)vd->vdev_state);
 				vd->vdev_resilver_txg = 0;
 				vdev_config_dirty(vd->vdev_top);
 			}
@@ -7279,6 +7306,9 @@ EXPORT_SYMBOL(vdev_degrade);
 EXPORT_SYMBOL(vdev_online);
 EXPORT_SYMBOL(vdev_offline);
 EXPORT_SYMBOL(vdev_clear);
+
+ZFS_MODULE_PARAM(zfs_vdev, zfs_vdev_, debug_reset_outage, UINT, ZMOD_RW,
+	"DEBUG: resilver_txg resets with a non-empty DTL_OUTAGE");
 
 ZFS_MODULE_PARAM(zfs_vdev, zfs_vdev_, default_ms_count, UINT, ZMOD_RW,
 	"Target number of metaslabs per top-level vdev");
