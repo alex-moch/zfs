@@ -48,9 +48,22 @@ function verify_dnode_packing
 	done
 }
 
+# DEBUG: dnode allocator counters, to see where the holes come from
+function dnstats
+{
+	typeset p=/sys/module/zfs/parameters/zfs_debug_objalloc
+	awk 'NR > 2 {print $1, $3}' /proc/spl/kstat/zfs/dnodestats
+	for c in chunk_lost chunk_lost_slots skip_slots stray; do
+		echo "$c $(cat ${p}_$c 2>/dev/null || echo 0)"
+	done
+}
+
 log_onexit cleanup
 log_assert "xattrtest runs concurrently on dataset with large dnodes"
 
+log_note "DEBUG check_end $(cat \
+    /sys/module/zfs/parameters/zfs_debug_objalloc_check_end 2>/dev/null)"
+dnstats > $TEST_BASE_DIR/dnstats.before
 log_must zfs create $TEST_FS
 log_must zfs set dnsize=auto $TEST_FS
 log_must zfs set xattr=sa $TEST_FS
@@ -63,6 +76,11 @@ done
 
 log_must wait
 sync_pool $TESTPOOL
+
+dnstats > $TEST_BASE_DIR/dnstats.after
+log_note "DEBUG dnstats $(awk 'NR == FNR {b[$1] = $2; next}
+	$2 != b[$1] {printf "%s=%d ", $1, $2 - b[$1]}' \
+	$TEST_BASE_DIR/dnstats.before $TEST_BASE_DIR/dnstats.after)"
 
 verify_dnode_packing
 

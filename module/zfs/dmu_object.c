@@ -34,6 +34,18 @@
  */
 uint_t dmu_object_alloc_chunk_shift = 7;
 
+/*
+ * DEBUG: count per-CPU chunks that are replaced before they are used up,
+ * dnode slots skipped after a failed hold, and reserved numbers past the
+ * end of the slot's chunk, to check the allocator fix in CI.
+ * zfs_debug_objalloc_check_end = 0 turns the past-the-end check off.
+ */
+static uint_t zfs_debug_objalloc_chunk_lost = 0;
+static uint_t zfs_debug_objalloc_chunk_lost_slots = 0;
+static uint_t zfs_debug_objalloc_skip_slots = 0;
+static uint_t zfs_debug_objalloc_stray = 0;
+static int zfs_debug_objalloc_check_end = 1;
+
 static uint64_t
 dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
     int indirect_blockshift, dmu_object_type_t bonustype, int bonuslen,
@@ -50,6 +62,7 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 	uint64_t cur;
 	uint64_t end_before, end_after;
 	boolean_t taken_over = B_FALSE;
+	uint64_t seen, old, prev_end, failed;	/* DEBUG */
 	uint_t dnodes_per_chunk = 1 << dmu_object_alloc_chunk_shift;
 	int error;
 
@@ -100,6 +113,7 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 		    (P2PHASE(object + dn_slots - 1, dnodes_per_chunk) <
 		    dn_slots))) {
 			DNODE_STAT_BUMP(dnode_alloc_next_chunk);
+			seen = object;
 			mutex_enter(&os->os_obj_lock);
 			/*
 			 * Another thread using the same per-CPU slot may
@@ -175,9 +189,18 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 			os->os_obj_next_chunk =
 			    P2ALIGN_TYPED(object, dnodes_per_chunk, uint64_t) +
 			    dnodes_per_chunk;
+			prev_end = *cpuend;
 			*cpuend = os->os_obj_next_chunk;
-			(void) atomic_swap_64(cpuobj, object);
+			old = atomic_swap_64(cpuobj, object);
 			mutex_exit(&os->os_obj_lock);
+			/* DEBUG: unused numbers left in the replaced chunk */
+			if (old != seen && old < prev_end &&
+			    prev_end - old < dnodes_per_chunk) {
+				atomic_inc_32(&zfs_debug_objalloc_chunk_lost);
+				atomic_add_32(
+				    &zfs_debug_objalloc_chunk_lost_slots,
+				    (uint32_t)(prev_end - old));
+			}
 		}
 
 		taken_over = B_FALSE;
@@ -203,8 +226,12 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 		if (object + dn_slots > end_before &&
 		    (object + dnodes_per_chunk < end_after ||
 		    object + dn_slots > end_after)) {
-			object = end_before;
-			continue;
+			/* DEBUG: count them, use them if the check is off */
+			atomic_inc_32(&zfs_debug_objalloc_stray);
+			if (zfs_debug_objalloc_check_end) {
+				object = end_before;
+				continue;
+			}
 		}
 
 		/*
@@ -248,10 +275,15 @@ dmu_object_alloc_impl(objset_t *os, dmu_object_type_t ot, int blocksize,
 		 * Skip to next known valid starting point on error.  This
 		 * is the start of the next block of dnodes.
 		 */
+		failed = object;
 		if (dmu_object_next(os, &object, B_TRUE, 0) != 0) {
 			object = P2ROUNDUP(object + 1, DNODES_PER_BLOCK);
 			DNODE_STAT_BUMP(dnode_alloc_next_block);
 		}
+		/* DEBUG: slots skipped after a failed hold */
+		if (object > failed + dn_slots)
+			atomic_add_32(&zfs_debug_objalloc_skip_slots,
+			    (uint32_t)(object - failed - dn_slots));
 		(void) atomic_swap_64(cpuobj, object);
 	}
 }
@@ -555,3 +587,18 @@ EXPORT_SYMBOL(dmu_object_free_zapified);
 
 ZFS_MODULE_PARAM(zfs, , dmu_object_alloc_chunk_shift, UINT, ZMOD_RW,
 	"CPU-specific allocator grabs 2^N objects at once");
+
+ZFS_MODULE_PARAM(zfs, zfs_, debug_objalloc_chunk_lost, UINT, ZMOD_RW,
+	"DEBUG: per-CPU chunks replaced before they were used up");
+
+ZFS_MODULE_PARAM(zfs, zfs_, debug_objalloc_chunk_lost_slots, UINT, ZMOD_RW,
+	"DEBUG: dnode slots left in replaced per-CPU chunks");
+
+ZFS_MODULE_PARAM(zfs, zfs_, debug_objalloc_skip_slots, UINT, ZMOD_RW,
+	"DEBUG: dnode slots skipped after a failed dnode hold");
+
+ZFS_MODULE_PARAM(zfs, zfs_, debug_objalloc_stray, UINT, ZMOD_RW,
+	"DEBUG: reserved object numbers past the end of the slot's chunk");
+
+ZFS_MODULE_PARAM(zfs, zfs_, debug_objalloc_check_end, INT, ZMOD_RW,
+	"DEBUG: 1 = take a new chunk for such numbers, 0 = use them");

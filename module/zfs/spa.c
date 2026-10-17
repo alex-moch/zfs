@@ -8818,6 +8818,11 @@ spa_vdev_attach(spa_t *spa, uint64_t guid, nvlist_t *nvroot, int replacing,
 			vdev_rebuild(tvd, txg);
 		} else {
 			newvd->vdev_resilver_txg = txg;
+			/* DEBUG */
+			zfs_dbgmsg("DEBUG attach %s resilver_txg=%llu "
+			    "dtl_max_txg=%llu", newvd->vdev_path != NULL ?
+			    newvd->vdev_path : "-", (u_longlong_t)txg,
+			    (u_longlong_t)dtl_max_txg);
 
 			if (dsl_scan_resilvering(spa_get_dsl(spa)) &&
 			    spa_feature_is_enabled(spa,
