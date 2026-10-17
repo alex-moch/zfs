@@ -231,6 +231,15 @@ case "$OS" in
     ;;
 esac
 
+# DEBUG: jobs named *-nocheck* turn off the check that keeps the object
+# allocator inside its per-CPU chunk, as a control group.
+case "$OS" in
+  *-nocheck*)
+    echo 0 | sudo tee \
+      /sys/module/zfs/parameters/zfs_debug_objalloc_check_end >/dev/null
+    ;;
+esac
+
 # Lustre calls a number of exported ZFS module symbols.  To make sure we don't
 # change the symbols and break Lustre, do a quick Lustre build of the latest
 # released Lustre against ZFS.
@@ -254,7 +263,30 @@ df -h > df-prerun.txt
 RV=0
 KMEMLEAK=""
 grep -qw kmemleak=on /proc/cmdline && KMEMLEAK="-m"
-$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T $TAGS || RV=$?
+# DEBUG: run the groups around the DTL changes once, keep their output in
+# /var/tmp/regress-*.txt (only "current" and *.txt are collected), then
+# repeat zpool_offline_spare (verify.run), fewer times with kmemleak,
+# with a panic and hang watchdog. Save the DEBUG counters.
+$HOME/zfs/.github/workflows/scripts/qemu-6-watchdog.sh &
+WATCHDOG=$!
+REGRESS="replacement,fault,zpool_offline,zpool_online,zpool_resilver"
+REGRESS="$REGRESS,zpool_reopen,zpool_replace,zpool_attach,zpool_detach"
+$TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -T $REGRESS 2>&1 | \
+  tee regress-console.txt
+echo "${PIPESTATUS[0]}" > regress-exitcode.txt
+cp -L /var/tmp/test_results/current/log regress-log.txt || true
+ITER=5000
+[ -n "$KMEMLEAK" ] && ITER=3000
+if [ -e /var/tmp/watchdog-panic.txt ]; then
+  echo "DEBUG: ZFS assertion in the regression groups, verify.run skipped"
+  RV=1
+else
+  $TDIR/zfs-tests.sh -vKO $KMEMLEAK -s 3GB -r verify -I $ITER || RV=$?
+fi
+kill $WATCHDOG 2>/dev/null || true
+for f in /sys/module/zfs/parameters/zfs*_debug_*; do
+  echo "$(basename $f) $(cat $f)"
+done > debug-counters.txt 2>&1
 
 df -h > df-postrun.txt
 echo $RV > tests-exitcode.txt

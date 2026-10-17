@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: CDDL-1.0
+#
+# DEBUG: repeat zpool_offline_spare, the rarest open Alpine flake. Run with
+# zfs-tests.sh -r verify -I <n>.
+#
+
+[DEFAULT]
+pre = setup
+quiet = False
+pre_user = root
+user = root
+timeout = 600
+post_user = root
+post = cleanup
+failsafe_user = root
+failsafe = callbacks/zfs_failsafe
+tags = ['functional']
+
+[tests/functional/cli_root/zpool_offline]
+tests = ['zpool_offline_spare']
+tags = ['functional', 'cli_root', 'zpool_offline']
