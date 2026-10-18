@@ -119,6 +119,11 @@ scripts_zfs_tests_bin_PROGRAMS += %D%/ereports
 	libnvpair.la \
 	libzfs.la
 
+scripts_zfs_tests_bin_PROGRAMS += %D%/zevent_reader
+%C%_zevent_reader_LDADD = \
+	libnvpair.la \
+	libzfs.la
+
 
 scripts_zfs_tests_bin_PROGRAMS += %D%/edonr_test %D%/skein_test \
 	%D%/sha2_test %D%/blake3_test

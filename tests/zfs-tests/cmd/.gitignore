@@ -59,6 +59,7 @@
 /ctime
 /truncate_test
 /ereports
+/zevent_reader
 /zfs_diff-socket
 /dosmode_readonly_write
 /blake3_test

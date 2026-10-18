@@ -1598,6 +1598,7 @@ nobase_dist_datadir_zfs_tests_tests_SCRIPTS += \
 	functional/ctime/ctime_001_pos.ksh \
 	functional/ctime/setup.ksh \
 	functional/deadman/deadman_ratelimit.ksh \
+	functional/deadman/deadman_ratelimit_dropped.ksh \
 	functional/deadman/deadman_sync.ksh \
 	functional/deadman/deadman_zio.ksh \
 	functional/dedup/cleanup.ksh \
@@ -1690,6 +1691,8 @@ nobase_dist_datadir_zfs_tests_tests_SCRIPTS += \
 	functional/events/zed_cksum_config.ksh \
 	functional/events/zed_cksum_reported.ksh \
 	functional/events/zed_diagnose_multiple.ksh \
+	functional/events/zed_events_clear.ksh \
+	functional/events/zed_events_overflow.ksh \
 	functional/events/zed_fd_spill.ksh \
 	functional/events/zed_io_config.ksh \
 	functional/events/zed_rc_filter.ksh \
