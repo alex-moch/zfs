@@ -80,6 +80,8 @@ typedef struct zfs_zevent {
 	zevent_t	*ze_zevent;	/* protected by the zevent_lock */
 	list_node_t	ze_node;	/* " */
 	uint64_t	ze_dropped;	/* " */
+	uint64_t	ze_overflows;	/* " zevent_overflows when detached */
+	boolean_t	ze_detached;	/* " cursor event was removed */
 } zfs_zevent_t;
 
 extern void fm_init(void);

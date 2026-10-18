@@ -51,6 +51,15 @@ and the following sections.
 Clear all previous events.
 .It Fl f
 Follow mode.
+Reports how many events were missed when the event queue overflowed
+before they were read.
+Events not posted because of rate limiting are not part of that count,
+they are counted in the
+.Sy erpt-ratelimited
+field of the
+.Pa /proc/spl/kstat/zfs/fm
+kstat
+.Pq Sy kstat.zfs.misc.fm No on Fx .
 .It Fl H
 Scripted mode.
 Do not display headers, and separate fields by a

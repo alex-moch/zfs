@@ -351,7 +351,7 @@ extern uint64_t fm_ena_generation_get(uint64_t);
 extern uchar_t fm_ena_format_get(uint64_t);
 extern uint64_t fm_ena_id_get(uint64_t);
 extern uint64_t fm_ena_time_get(uint64_t);
-extern void fm_erpt_dropped_increment(void);
+extern void fm_erpt_ratelimited_increment(void);
 
 #ifdef	__cplusplus
 }

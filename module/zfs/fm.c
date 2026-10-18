@@ -62,11 +62,10 @@
 static uint_t zfs_zevent_len_max = 512;
 
 static uint_t zevent_len_cur = 0;
+/* Num events removed because the queue was full, protected by zevent_lock */
+static uint64_t zevent_overflows = 0;
 static int zevent_waiters = 0;
 static int zevent_flags = 0;
-
-/* Num events rate limited since the last time zfs_zevent_next() was called */
-static uint64_t ratelimit_dropped = 0;
 
 /*
  * The EID (Event IDentifier) is used to uniquely tag a zevent when it is
@@ -92,6 +91,7 @@ struct erpt_kstat {
 	kstat_named_t	fmri_set_failed;	/* num fmri set failures */
 	kstat_named_t	payload_set_failed;	/* num payload set failures */
 	kstat_named_t	erpt_duplicates;	/* num duplicate erpts */
+	kstat_named_t	erpt_ratelimited;	/* num rate limited erpts */
 };
 
 static struct erpt_kstat erpt_kstat_data = {
@@ -99,7 +99,8 @@ static struct erpt_kstat erpt_kstat_data = {
 	{ "erpt-set-failed", KSTAT_DATA_UINT64 },
 	{ "fmri-set-failed", KSTAT_DATA_UINT64 },
 	{ "payload-set-failed", KSTAT_DATA_UINT64 },
-	{ "erpt-duplicates", KSTAT_DATA_UINT64 }
+	{ "erpt-duplicates", KSTAT_DATA_UINT64 },
+	{ "erpt-ratelimited", KSTAT_DATA_UINT64 }
 };
 
 kstat_t *fm_ksp;
@@ -131,17 +132,24 @@ zfs_zevent_free(zevent_t *ev)
 }
 
 static void
-zfs_zevent_drain(zevent_t *ev)
+zfs_zevent_drain(zevent_t *ev, boolean_t overflow)
 {
 	zfs_zevent_t *ze;
 
 	ASSERT(MUTEX_HELD(&zevent_lock));
 	list_remove(&zevent_list, ev);
+	if (overflow)
+		zevent_overflows++;
 
-	/* Remove references to this event in all private file data */
+	/*
+	 * Remove references to this event in all private file data.  The
+	 * readers have already read it, so this is not a loss.  Every later
+	 * overflow until their next read is, see zfs_zevent_next().
+	 */
 	while ((ze = list_remove_head(&ev->ev_ze_list)) != NULL) {
 		ze->ze_zevent = NULL;
-		ze->ze_dropped++;
+		ze->ze_overflows = zevent_overflows;
+		ze->ze_detached = B_TRUE;
 	}
 
 	zfs_zevent_free(ev);
@@ -154,7 +162,7 @@ zfs_zevent_drain_all(uint_t *count)
 
 	mutex_enter(&zevent_lock);
 	while ((ev = list_head(&zevent_list)) != NULL)
-		zfs_zevent_drain(ev);
+		zfs_zevent_drain(ev, B_FALSE);
 
 	*count = zevent_len_cur;
 	zevent_len_cur = 0;
@@ -175,7 +183,7 @@ zfs_zevent_insert(zevent_t *ev)
 	list_insert_head(&zevent_list, ev);
 
 	if (zevent_len_cur >= zfs_zevent_len_max)
-		zfs_zevent_drain(list_tail(&zevent_list));
+		zfs_zevent_drain(list_tail(&zevent_list), B_TRUE);
 	else
 		zevent_len_cur++;
 }
@@ -337,15 +345,16 @@ zfs_zevent_next(zfs_zevent_t *ze, nvlist_t **event, uint64_t *event_size,
 	if (ze->ze_zevent)
 		list_remove(&ze->ze_zevent->ev_ze_list, ze);
 
+	/* events removed by overflows since our cursor event was removed */
+	if (ze->ze_detached) {
+		ze->ze_dropped += zevent_overflows - ze->ze_overflows;
+		ze->ze_detached = B_FALSE;
+	}
+
 	ze->ze_zevent = ev;
 	list_insert_head(&ev->ev_ze_list, ze);
 	(void) nvlist_dup(ev->ev_nvl, event, KM_SLEEP);
 	*dropped = ze->ze_dropped;
-
-#ifdef _KERNEL
-	/* Include events dropped due to rate limiting */
-	*dropped += atomic_swap_64(&ratelimit_dropped, 0);
-#endif
 	ze->ze_dropped = 0;
 out:
 	mutex_exit(&zevent_lock);
@@ -409,12 +418,14 @@ zfs_zevent_seek(zfs_zevent_t *ze, uint64_t eid)
 			list_remove(&ze->ze_zevent->ev_ze_list, ze);
 
 		ze->ze_zevent = NULL;
+		ze->ze_detached = B_FALSE;
 		goto out;
 	}
 
 	if (eid == ZEVENT_SEEK_END) {
 		if (ze->ze_zevent)
 			list_remove(&ze->ze_zevent->ev_ze_list, ze);
+		ze->ze_detached = B_FALSE;
 
 		ev = list_head(&zevent_list);
 		if (ev) {
@@ -434,6 +445,7 @@ zfs_zevent_seek(zfs_zevent_t *ze, uint64_t eid)
 				list_remove(&ze->ze_zevent->ev_ze_list, ze);
 
 			ze->ze_zevent = ev;
+			ze->ze_detached = B_FALSE;
 			list_insert_head(&ev->ev_ze_list, ze);
 			break;
 		}
@@ -1293,14 +1305,13 @@ fm_ena_time_get(uint64_t ena)
 
 #ifdef _KERNEL
 /*
- * Helper function to increment ereport dropped count.  Used by the event
- * rate limiting code to give feedback to the user about how many events were
- * rate limited by including them in the 'dropped' count.
+ * Count an ereport the rate limiting code did not post.  This is not a
+ * dropped event for the readers: a longer queue would not have kept it.
  */
 void
-fm_erpt_dropped_increment(void)
+fm_erpt_ratelimited_increment(void)
 {
-	atomic_inc_64(&ratelimit_dropped);
+	atomic_inc_64(&erpt_kstat_data.erpt_ratelimited.value.ui64);
 }
 
 void

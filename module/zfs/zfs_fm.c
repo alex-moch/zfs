@@ -451,7 +451,7 @@ zfs_is_ratelimiting_event(const char *subclass, vdev_t *vd)
 
 	if (rc)	{
 		/* We're rate limiting */
-		fm_erpt_dropped_increment();
+		fm_erpt_ratelimited_increment();
 	}
 
 	return (rc);
