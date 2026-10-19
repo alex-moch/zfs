@@ -21,4 +21,9 @@ DISK=${DISKS%% *}
 
 zed_setup all-debug.sh all-syslog.sh
 
+# ZED raises zfs_zevent_len_max only after it has lost events. Give the
+# error storms of these tests a queue that does not overflow.
+log_must eval "get_tunable ZEVENT_LEN_MAX > $TEST_BASE_DIR/zevent_len_max"
+log_must set_tunable32 ZEVENT_LEN_MAX 20000
+
 default_setup $DISK

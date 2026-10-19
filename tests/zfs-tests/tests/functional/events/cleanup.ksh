@@ -23,4 +23,9 @@ zed_cleanup all-debug.sh all-syslog.sh all-dumpfds
 
 zed_events_drain
 
+if [[ -f $TEST_BASE_DIR/zevent_len_max ]]; then
+	log_must set_tunable32 ZEVENT_LEN_MAX $(<$TEST_BASE_DIR/zevent_len_max)
+	log_must rm -f $TEST_BASE_DIR/zevent_len_max
+fi
+
 default_cleanup
