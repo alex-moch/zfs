@@ -201,6 +201,12 @@ free_verify(dmu_buf_impl_t *db, uint64_t start, uint64_t end, dmu_tx_t *tx)
 			continue;
 		ASSERT0(err);
 		ASSERT0(child->db_level);
+
+		/*
+		 * Hold db_mtx for both checks: open context may undirty
+		 * the child while we walk its dirty records.
+		 */
+		mutex_enter(&child->db_mtx);
 		dr = dbuf_find_dirty_eq(child, txg);
 
 		/* data_old better be zeroed */
@@ -222,7 +228,6 @@ free_verify(dmu_buf_impl_t *db, uint64_t start, uint64_t end, dmu_tx_t *tx)
 		 * db_data better be zeroed unless it's dirty in a
 		 * future txg.
 		 */
-		mutex_enter(&child->db_mtx);
 		buf = child->db.db_data;
 		if (buf != NULL && child->db_state != DB_FILL &&
 		    list_is_empty(&child->db_dirty_records)) {
