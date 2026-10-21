@@ -79,6 +79,7 @@ typedef struct tsd_hash_table {
 typedef struct tsd_hash_entry {
 	uint_t			he_key;
 	pid_t			he_pid;
+	uint64_t		he_start;
 	dtor_func_t		he_dtor;
 	void			*he_value;
 	struct hlist_node	he_list;
@@ -87,6 +88,17 @@ typedef struct tsd_hash_entry {
 } tsd_hash_entry_t;
 
 static tsd_hash_table_t *tsd_hash_table = NULL;
+
+/*
+ * A user process never calls tsd_exit(), so its entries outlive it and a
+ * later thread with the same pid would find them. The start time tells
+ * the two threads apart.
+ */
+static inline uint64_t
+tsd_start(kthread_t *t)
+{
+	return (t->start_time);
+}
 
 
 /*
@@ -154,7 +166,8 @@ tsd_hash_dtor(struct hlist_head *work)
  * links to the dtor and pid entries the entire table is locked.
  */
 static int
-tsd_hash_add(tsd_hash_table_t *table, uint_t key, pid_t pid, void *value)
+tsd_hash_add(tsd_hash_table_t *table, uint_t key, pid_t pid, uint64_t start,
+    void *value)
 {
 	tsd_hash_entry_t *entry, *dtor_entry, *pid_entry;
 	tsd_hash_bin_t *bin;
@@ -170,6 +183,7 @@ tsd_hash_add(tsd_hash_table_t *table, uint_t key, pid_t pid, void *value)
 
 	entry->he_key = key;
 	entry->he_pid = pid;
+	entry->he_start = start;
 	entry->he_value = value;
 	INIT_HLIST_NODE(&entry->he_list);
 	INIT_LIST_HEAD(&entry->he_key_list);
@@ -246,6 +260,7 @@ tsd_hash_add_key(tsd_hash_table_t *table, uint_t *keyp, dtor_func_t dtor)
 	/* Add destructor entry in to hash table */
 	entry->he_key = *keyp = table->ht_key;
 	entry->he_pid = DTOR_PID;
+	entry->he_start = 0;
 	entry->he_dtor = dtor;
 	entry->he_value = NULL;
 	INIT_HLIST_NODE(&entry->he_list);
@@ -274,7 +289,7 @@ tsd_hash_add_key(tsd_hash_table_t *table, uint_t *keyp, dtor_func_t dtor)
  * linked to this anchor via the 'he_pid_list' list head.
  */
 static int
-tsd_hash_add_pid(tsd_hash_table_t *table, pid_t pid)
+tsd_hash_add_pid(tsd_hash_table_t *table, pid_t pid, uint64_t start)
 {
 	tsd_hash_entry_t *entry;
 	tsd_hash_bin_t *bin;
@@ -288,6 +303,7 @@ tsd_hash_add_pid(tsd_hash_table_t *table, pid_t pid)
 	spin_lock(&table->ht_lock);
 	entry->he_key = PID_KEY;
 	entry->he_pid = pid;
+	entry->he_start = start;
 	entry->he_dtor = NULL;
 	entry->he_value = NULL;
 	INIT_HLIST_NODE(&entry->he_list);
@@ -462,12 +478,14 @@ tsd_set(uint_t key, void *value)
 	tsd_hash_table_t *table;
 	tsd_hash_entry_t *entry;
 	pid_t pid;
+	uint64_t start;
 	int rc;
 	/* mark remove if value is NULL */
 	boolean_t remove = (value == NULL);
 
 	table = tsd_hash_table;
 	pid = curthread->pid;
+	start = tsd_start(curthread);
 	ASSERT3P(table, !=, NULL);
 
 	if ((key == 0) || (key > TSD_KEYS_MAX))
@@ -475,6 +493,11 @@ tsd_set(uint_t key, void *value)
 
 	/* Entry already exists in hash table update value */
 	entry = tsd_hash_search(table, key, pid);
+	if (entry != NULL && entry->he_start != start) {
+		/* Left behind by an exited thread with this pid */
+		tsd_exit();
+		entry = NULL;
+	}
 	if (entry) {
 		entry->he_value = value;
 		/* remove the entry */
@@ -489,13 +512,18 @@ tsd_set(uint_t key, void *value)
 
 	/* Add a process entry to the hash if not yet exists */
 	entry = tsd_hash_search(table, PID_KEY, pid);
+	if (entry != NULL && entry->he_start != start) {
+		/* Other keys of an exited thread with this pid */
+		tsd_exit();
+		entry = NULL;
+	}
 	if (entry == NULL) {
-		rc = tsd_hash_add_pid(table, pid);
+		rc = tsd_hash_add_pid(table, pid, start);
 		if (rc)
 			return (rc);
 	}
 
-	rc = tsd_hash_add(table, key, pid, value);
+	rc = tsd_hash_add(table, key, pid, start, value);
 	return (rc);
 }
 EXPORT_SYMBOL(tsd_set);
@@ -522,6 +550,12 @@ tsd_get(uint_t key)
 	if (entry == NULL)
 		return (NULL);
 
+	/* Left behind by an exited thread with this pid */
+	if (entry->he_start != tsd_start(curthread)) {
+		tsd_exit();
+		return (NULL);
+	}
+
 	return (entry->he_value);
 }
 EXPORT_SYMBOL(tsd_get);
@@ -546,7 +580,7 @@ tsd_get_by_thread(uint_t key, kthread_t *thread)
 		return (NULL);
 
 	entry = tsd_hash_search(tsd_hash_table, key, thread->pid);
-	if (entry == NULL)
+	if (entry == NULL || entry->he_start != tsd_start(thread))
 		return (NULL);
 
 	return (entry->he_value);
