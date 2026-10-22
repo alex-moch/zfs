@@ -184,6 +184,10 @@ tags = ['functional', 'luks']
 tests = ['mmap_libaio_001_pos', 'mmap_sync_001_pos']
 tags = ['functional', 'mmap']
 
+[tests/functional/history:Linux]
+tests = ['history_pid_reuse']
+tags = ['functional', 'history']
+
 [tests/functional/mmp:Linux]
 tests = ['mmp_on_thread', 'mmp_on_uberblocks', 'mmp_on_off', 'mmp_interval',
     'mmp_active_import', 'mmp_inactive_import', 'mmp_exported_import',
